@@ -10,6 +10,7 @@
             --card-bg: #2d2d2d;
             --accent-color: #e74c3c;
             --accent-green: #2ecc71;
+            --accent-blue: #3498db;
             --text-color: #ffffff;
         }
 
@@ -56,11 +57,13 @@
         .status-bar span { color: var(--accent-green); }
 
         /* Tabla Marcador */
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 14px; }
         th, td { border: 1px solid #444; padding: 10px 2px; text-align: center; }
         th { background: #222; }
         .active-player-col { background: rgba(46, 204, 113, 0.15); font-weight: bold; }
-        .closed-cell { color: var(--accent-green); font-weight: bold; font-size: 11px; }
+        .closed-cell { color: var(--accent-green); font-weight: bold; font-size: 11px; cursor: pointer; }
+        .editable-cell { cursor: pointer; transition: background 0.2s; }
+        .editable-cell:hover { background: rgba(52, 152, 219, 0.3); }
 
         .dice-badge {
             display: inline-block; width: 28px; height: 28px; border-radius: 4px;
@@ -93,7 +96,11 @@
         
         .btn-confirm { background: var(--accent-green); font-size: 16px; margin-top: 10px; }
 
-        /* Pantalla Emergente Ganador */
+        .utility-btns { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-undo { background: #e67e22; font-size: 14px; padding: 10px; flex: 1; }
+        .btn-pass-turn { background: #7f8c8d; font-size: 14px; padding: 10px; flex: 1; }
+
+        /* Emergente Ganador */
         #winner-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.9); z-index: 9999; flex-direction: column;
@@ -141,6 +148,8 @@
     <div id="game-screen">
         <div class="status-bar">Turno de: <span id="current-player-name">---</span></div>
 
+        <p style="font-size:11px; color:#888; text-align:center; margin-top:-10px; margin-bottom:8px;">💡 Toca cualquier casilla o los puntos para corregir manualmente</p>
+
         <table id="scoreboard">
             <thead>
                 <tr id="header-row">
@@ -168,7 +177,10 @@
                 <button onclick="cancelSelection()" style="background:#555; font-size:12px; padding:4px; margin-top:10px; width:auto; display:inline-block;">Cancelar</button>
             </div>
 
-            <button id="btn-pass" onclick="passTurn()" style="background:#7f8c8d; margin-top:10px; font-size:14px; padding:8px;">Pasar Turno (0 dados)</button>
+            <div class="utility-btns">
+                <button class="btn-undo" onclick="undoLastMove()">↩️ Deshacer Último</button>
+                <button class="btn-pass-turn" onclick="passTurn()">Pasar Turno (0)</button>
+            </div>
         </div>
     </div>
 
@@ -197,6 +209,7 @@
         let currentPlayerIndex = 0;
         let selectedFace = null;
         let currentDiceCount = 3;
+        let historyStack = []; // Historial para el botón Deshacer
 
         function generatePlayerInputs() {
             const count = parseInt(document.getElementById('player-count').value);
@@ -211,6 +224,7 @@
         function startGame() {
             const count = parseInt(document.getElementById('player-count').value);
             players = [];
+            historyStack = [];
             for (let i = 0; i < count; i++) {
                 const name = document.getElementById(`pname-${i+1}`).value.trim() || `Jugador ${i+1}`;
                 players.push({
@@ -230,7 +244,7 @@
             const headerRow = document.getElementById('header-row');
             headerRow.innerHTML = '<th>Cara</th>';
             players.forEach((p, idx) => {
-                headerRow.innerHTML += `<th id="th-p-${idx}">${p.name}<br><span id="score-p-${idx}">0 pts</span></th>`;
+                headerRow.innerHTML += `<th id="th-p-${idx}" onclick="manualEditScore(${idx})" style="cursor:pointer;" title="Toca para editar puntos">${p.name}<br><span id="score-p-${idx}" style="color:var(--accent-green);">0 pts</span></th>`;
             });
 
             const body = document.getElementById('scoreboard-body');
@@ -242,7 +256,7 @@
                         <div style="font-size:10px; color:#aaa; margin-top:2px;">Valor: ${f.val}</div>
                     </td>`;
                 players.forEach((p, pIdx) => {
-                    rowHtml += `<td id="cell-${f.id}-p-${pIdx}" style="font-size:11px;">0/5</td>`;
+                    rowHtml += `<td id="cell-${f.id}-p-${pIdx}" class="editable-cell" onclick="manualEditHits(${pIdx}, '${f.id}')" style="font-size:11px;">0/5</td>`;
                 });
                 rowHtml += '</tr>';
                 body.innerHTML += rowHtml;
@@ -259,6 +273,56 @@
                         <span>${f.displayLabel}</span>
                     </button>`;
             });
+        }
+
+        function saveStateToHistory() {
+            historyStack.push({
+                players: JSON.parse(JSON.stringify(players)),
+                currentPlayerIndex: currentPlayerIndex
+            });
+        }
+
+        function undoLastMove() {
+            if (historyStack.length === 0) {
+                alert("No hay movimientos anteriores para deshacer.");
+                return;
+            }
+            const previousState = historyStack.pop();
+            players = previousState.players;
+            currentPlayerIndex = previousState.currentPlayerIndex;
+            updateScoreboardDisplay();
+            updateTurnDisplay();
+        }
+
+        function manualEditHits(pIdx, faceId) {
+            let player = players[pIdx];
+            let current = player.hits[faceId];
+            let input = prompt(`Editar impactos de [${faceId}] para ${player.name}:\n(Introduce un número entre 0 y 5)`, current);
+            if (input !== null) {
+                let val = parseInt(input);
+                if (!isNaN(val) && val >= 0 && val <= 5) {
+                    saveStateToHistory();
+                    player.hits[faceId] = val;
+                    updateScoreboardDisplay();
+                } else {
+                    alert("Valor no válido. Debe ser entre 0 y 5.");
+                }
+            }
+        }
+
+        function manualEditScore(pIdx) {
+            let player = players[pIdx];
+            let input = prompt(`Editar puntos totales para ${player.name}:`, player.score);
+            if (input !== null) {
+                let val = parseInt(input);
+                if (!isNaN(val) && val >= 0) {
+                    saveStateToHistory();
+                    player.score = val;
+                    updateScoreboardDisplay();
+                } else {
+                    alert("Por favor, introduce un número válido.");
+                }
+            }
         }
 
         function updateTurnDisplay() {
@@ -304,13 +368,13 @@
 
         function submitScore() {
             if (!selectedFace) return;
-            let count = currentDiceCount;
+            saveStateToHistory();
 
+            let count = currentDiceCount;
             let player = players[currentPlayerIndex];
             let faceId = selectedFace.id;
             let currentHits = player.hits[faceId];
             let newHits = currentHits + count;
-            
             let hitsUsedForScoring = 0;
 
             if (currentHits < 5) {
@@ -321,12 +385,9 @@
                 hitsUsedForScoring = count; 
             }
 
-            // Guardar impactos exactos
             player.hits[faceId] = Math.min(5, newHits);
 
-            // Calcular puntuación si corresponde
             if (hitsUsedForScoring > 0) {
-                // Verificar si ALGÚN oponente tiene el número abierto
                 const someoneElseOpen = players.some((p, idx) => {
                     if (idx === currentPlayerIndex) return false;
                     return p.hits[faceId] < 5;
@@ -358,9 +419,10 @@
                     let hits = p.hits[f.id];
                     if (hits >= 5) {
                         cell.innerText = "🔒 CERRADO";
-                        cell.className = "closed-cell";
+                        cell.className = "closed-cell editable-cell";
                     } else {
                         cell.innerText = "❌".repeat(hits) || "0/5";
+                        cell.className = "editable-cell";
                     }
                 });
             });
